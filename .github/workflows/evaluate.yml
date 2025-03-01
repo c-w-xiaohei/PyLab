@@ -213,7 +213,8 @@ jobs:
             fi
           done
           
-          echo "测评路径: $PATH_ARGS"
+          # 添加当前目录到 PYTHONPATH，确保可以找到 evaluate 目录中的模块
+          export PYTHONPATH=$PYTHONPATH:$(pwd)
           
           # 运行测评脚本，一次性测评所有路径
           RESULT=$(python -m evaluate.main --path $PATH_ARGS)
