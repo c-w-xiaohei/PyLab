@@ -1,9 +1,8 @@
 name: 测评学习者代码
 
 on:
-  pull_request:
-    branches:
-      - submit
+  pull_request_target:
+    branches: [ submit ]
     types: [opened, synchronize, reopened]
 
 # 添加权限配置
