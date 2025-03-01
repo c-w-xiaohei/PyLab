@@ -220,36 +220,10 @@ jobs:
           RESULT=$(python -m evaluate.main --path $PATH_ARGS)
           EXIT_CODE=$?
           
-          # 保存结果
-          EVALUATION_RESULTS="$RESULT"
-          
-          # 检查JSON结果中是否所有实验都通过
-          if [ $EXIT_CODE -eq 0 ]; then
-            # 首先检查是否有顶层错误
-            if echo "$RESULT" | jq -e '.error' > /dev/null 2>&1; then
-              OVERALL_RESULT=false
-              echo "发现顶层错误"
-            else
-              # 检查每个实验的passed字段和table_update_error字段
-              PASSED_CHECK=$(echo "$RESULT" | jq -r 'all(.passed == true)')
-              TABLE_ERROR_CHECK=$(echo "$RESULT" | jq -r 'any(.table_update_error != null)')
-              
-              if [[ "$PASSED_CHECK" == "true" && "$TABLE_ERROR_CHECK" == "false" ]]; then
-                OVERALL_RESULT=true
-              else
-                OVERALL_RESULT=false
-                echo "测评未通过或表格更新错误"
-              fi
-            fi
-          else
-            OVERALL_RESULT=false
-            echo "测评脚本执行失败，退出码: $EXIT_CODE"
-          fi
-          
-          # 输出结果
-          echo "result=$OVERALL_RESULT" >> $GITHUB_OUTPUT
+          # 保存结果和退出码
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
           echo "details<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$EVALUATION_RESULTS" >> $GITHUB_OUTPUT
+          echo -e "$RESULT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           
       - name: 提交测评结果
@@ -257,24 +231,31 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const result = ${{ steps.evaluate.outputs.result }};
             const details = `${{ steps.evaluate.outputs.details }}`;
+            const exitCode = parseInt('${{ steps.evaluate.outputs.exit_code }}');
             
             let commentBody = '';
+            let passed = false;
+            
             try {
-              const resultObj = JSON.parse(details);
-              
-              // 检查是否有顶层错误
-              if (resultObj.error) {
-                commentBody = `❌ 测评过程发生错误！\n\n错误信息：${resultObj.error}\n\n完整结果：\n\`\`\`json\n${details}\n\`\`\``;
+              if (exitCode !== 0) {
+                commentBody = `❌ 测评脚本执行失败，退出码: ${exitCode}\n\n原始输出：\n\`\`\`\n${details}\n\`\`\``;
               } else {
-                // 处理正常的测评结果
-                if (result === 'true') {
-                  commentBody = '✅ 测评通过！\n\n```json\n' + details + '\n```';
+                const resultObj = JSON.parse(details);
+                
+                // 检查是否有顶层错误
+                if (resultObj.error) {
+                  commentBody = `❌ 测评过程发生错误！\n\n错误信息：${resultObj.error}\n\n完整结果：\n\`\`\`json\n${details}\n\`\`\``;
                 } else {
-                  // 检查是否有表格更新错误
+                  // 检查每个实验的passed字段和table_update_error字段
+                  const allPassed = resultObj.every(item => item.passed === true);
                   const hasTableError = resultObj.some(item => item.table_update_error);
-                  if (hasTableError) {
+                  
+                  passed = allPassed && !hasTableError;
+                  
+                  if (passed) {
+                    commentBody = '✅ 测评通过！\n\n```json\n' + details + '\n```';
+                  } else if (hasTableError) {
                     commentBody = '❌ 测评未通过！表格更新过程中发生错误：\n\n```json\n' + details + '\n```';
                   } else {
                     commentBody = '❌ 测评未通过！请检查以下测评结果并修改代码：\n\n```json\n' + details + '\n```';
@@ -283,7 +264,7 @@ jobs:
               }
             } catch (e) {
               // JSON解析失败，直接显示原始输出
-              commentBody = `❌ 测评结果解析失败！\n\n原始输出：\n\`\`\`\n${details}\n\`\`\``;
+              commentBody = `❌ 测评结果解析失败！\n\n原始输出：\n\`\`\`\n${details}\n\`\`\`\n\n解析错误：${e.message}`;
             }
             
             github.rest.issues.createComment({
@@ -293,7 +274,7 @@ jobs:
               body: commentBody
             });
             
-            if (result === 'true') {
+            if (passed) {
               github.rest.pulls.update({
                 pull_number: context.issue.number,
                 owner: context.repo.owner,
