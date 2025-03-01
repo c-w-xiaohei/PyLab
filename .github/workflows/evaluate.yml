@@ -25,7 +25,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
-          fetch-depth: 0
+          # fetch-depth: 0
           
       - name: 查找更改的文件
         id: find-changes
