@@ -184,7 +184,7 @@ jobs:
               echo "处理 $SUBMIT_DIR 中的Python文件..."
               
               # 复制setup.py到提交目录
-              cp evaluate/setup.py "$SUBMIT_DIR/"
+              cp evaluate/_setup.py "$SUBMIT_DIR/setup.py"
               
               # 进入目录并运行编译
               (cd "$SUBMIT_DIR" && python setup.py build_ext --inplace)
