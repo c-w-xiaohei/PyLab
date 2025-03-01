@@ -151,8 +151,8 @@ jobs:
           fi
           
           # 安装实验依赖
-          for PATH in ${{ needs.validate-submission.outputs.paths }}; do
-            if [[ $PATH =~ ([^/]+)/lab([0-9]+) ]]; then
+          for LAB_PATH in ${{ needs.validate-submission.outputs.paths }}; do
+            if [[ $LAB_PATH =~ ([^/]+)/lab([0-9]+) ]]; then
               LAB_NUM="${BASH_REMATCH[2]}"
               # 检查并安装实验的依赖
               REQ_FILE="code/lab${LAB_NUM}/requirements.txt"
@@ -162,9 +162,9 @@ jobs:
               fi
               
               # 检查并安装学习者的依赖
-              SUBMIT_REQ="submit/$PATH/requirements.txt"
+              SUBMIT_REQ="submit/$LAB_PATH/requirements.txt"
               if [ -f "$SUBMIT_REQ" ]; then
-                echo "安装学习者 ${PATH} 的依赖..."
+                echo "安装学习者 ${LAB_PATH} 的依赖..."
                 python -m pip install -r "$SUBMIT_REQ"
               fi
             fi
@@ -176,10 +176,10 @@ jobs:
           PATHS="${{ needs.validate-submission.outputs.paths }}"
           USERNAME="${{ needs.validate-submission.outputs.username }}"
           
-          for PATH in $PATHS; do
-            if [[ $PATH =~ ([^/]+)/lab([0-9]+) ]]; then
+          for LAB_PATH in $PATHS; do
+            if [[ $LAB_PATH =~ ([^/]+)/lab([0-9]+) ]]; then
               LAB_NUM="${BASH_REMATCH[2]}"
-              SUBMIT_DIR="submit/$PATH"
+              SUBMIT_DIR="submit/$LAB_PATH"
               
               echo "处理 $SUBMIT_DIR 中的Python文件..."
               
@@ -213,11 +213,11 @@ jobs:
           
           # 构建测评命令参数
           PATH_ARGS=""
-          for PATH in $PATHS; do
+          for LAB_PATH in $PATHS; do
             if [[ -z "$PATH_ARGS" ]]; then
-              PATH_ARGS="$PATH"
+              PATH_ARGS="$LAB_PATH"
             else
-              PATH_ARGS="$PATH_ARGS $PATH"
+              PATH_ARGS="$PATH_ARGS $LAB_PATH"
             fi
           done
           
