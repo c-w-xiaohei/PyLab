@@ -23,8 +23,9 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v3
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.sha }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           # fetch-depth: 0
           
       - name: 查找更改的文件
