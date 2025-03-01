@@ -1,7 +1,7 @@
 name: 测评学习者代码
 
 on:
-  pull_request:
+  pull_request_target:
     branches: [ submit ]
     types: [opened, synchronize, reopened]
 
@@ -28,15 +28,18 @@ jobs:
       - name: 查找更改的文件
         id: find-changes
         run: |
-          # 获取PR中更改的文件列表
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
-          echo "Changed files: $CHANGED_FILES"
+          # 使用 GitHub API 获取 PR 中更改的文件
+          PR_FILES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" | \
+            jq -r '.[].filename')
+          
+          echo "Changed files via API: $PR_FILES"
           
           # 检查是否只有submit目录下的文件被修改
           VALID_CHANGES=true
           PATHS=""
           
-          for file in $CHANGED_FILES; do
+          for file in $PR_FILES; do
             # 检查文件是否在submit目录下
             if [[ ! $file =~ ^submit/ ]]; then
               VALID_CHANGES=false
@@ -234,7 +237,7 @@ jobs:
       - name: 提交测评结果
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.WORKFLOW_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const details = `${{ steps.evaluate.outputs.details }}`;
             const exitCode = parseInt('${{ steps.evaluate.outputs.exit_code }}');
