@@ -121,9 +121,6 @@ class TableParser:
                     user.achievements[header] = cells[i]
                     
             table.achievements.append(user)
-        print(table.achievements)
-        if len(table.achievements) > 0:
-            print(table.achievements[0].achievements)
         
         return table
 
