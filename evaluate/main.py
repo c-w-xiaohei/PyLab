@@ -10,7 +10,7 @@ import traceback  # 导入 traceback 模块
 from evaluation_types import LabResult, EvaluationResults
 from table_utils import TableParser
 
-CURRENT_DIR = os.path.normpath(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT = os.path.normpath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 
@@ -31,7 +31,7 @@ def validate_path(path):
 
 def get_available_labs():
     """获取所有可用的实验编号"""
-    code_dir = os.path.join(CURRENT_DIR, 'code')
+    code_dir = os.path.join(PROJECT_ROOT, 'code')
     lab_dirs = [d for d in os.listdir(code_dir) if d.startswith('lab') and os.path.isdir(os.path.join(code_dir, d))]
     lab_num_list = sorted([int(re.search(r'lab(\d+)', d).group(1)) for d in lab_dirs])
     return lab_num_list
@@ -45,7 +45,7 @@ def main():
         results: EvaluationResults = []
         overall_status = True
 
-        readme_path = os.path.join(CURRENT_DIR, 'README.md')
+        readme_path = os.path.join(PROJECT_ROOT, 'README.md')
         try:
             with open(readme_path, 'r', encoding='utf-8') as f:
                 readme_content = f.readlines()
@@ -58,7 +58,7 @@ def main():
         for path in args.path:
             username, lab_num = validate_path(path)
             print(f'开始测评: 用户 {username}, 实验 {lab_num}', file=sys.stderr)
-            submit_path = os.path.join(CURRENT_DIR, 'submit', os.path.normpath(path))
+            submit_path = os.path.join(PROJECT_ROOT, 'submit', os.path.normpath(path))
             if not os.path.isdir(submit_path):
                 raise ValueError(f'找不到测评路径: {submit_path}')
 
@@ -71,7 +71,7 @@ def main():
 
             try:
                 # 1. 构建测评脚本的完整路径
-                test_script_dir = os.path.join(CURRENT_DIR, 'code', f'lab{lab_num}')
+                test_script_dir = os.path.join(PROJECT_ROOT, 'code', f'lab{lab_num}')
                 task_files = [f for f in os.listdir(test_script_dir) if f.startswith('task') and f.endswith('.py')]
                 task_files.sort(key=lambda x: int(re.search(r'task(\d+)\.py', x).group(1)))  # 按照任务编号排序
 
