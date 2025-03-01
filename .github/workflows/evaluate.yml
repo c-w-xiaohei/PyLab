@@ -117,19 +117,13 @@ jobs:
             }
             
             errorMessage += '\n- 请确保只修改 `/submit/[您的GitHub用户名]/lab[实验编号]/` 目录下的文件。';
+            errorMessage += '\n\n请修正以上问题后重新提交。';
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: errorMessage
-            });
-            
-            github.rest.pulls.update({
-              pull_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'closed'
             });
 
   evaluate-code:
