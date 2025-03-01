@@ -183,25 +183,17 @@ jobs:
               
               echo "处理 $SUBMIT_DIR 中的Python文件..."
               
-              # 查找所有Python文件并编译
-              find "$SUBMIT_DIR" -name "*.py" | while read -r py_file; do
-                echo "编译文件: $py_file"
-                
-                # 获取目录和模块名
-                setup_dir=$(dirname "$py_file")
-                module_name=$(basename "$py_file" .py)
-                
-                # 复制evaluate/setup.py到需要的地方
-                cp evaluate/setup.py "$setup_dir/"
-                
-                # 编译Python文件
-                (cd "$setup_dir" && python setup.py build_ext --inplace "$module_name.py")
-                
-                # 清理临时文件
-                rm -f "$setup_dir/setup.py"
-                rm -rf "$setup_dir/build"
-                rm -f "$setup_dir/$module_name.c"
-              done
+              # 复制setup.py到提交目录
+              cp evaluate/setup.py "$SUBMIT_DIR/"
+              
+              # 进入目录并运行编译
+              (cd "$SUBMIT_DIR" && python setup.py build_ext --inplace)
+              
+              # 清理临时文件
+              rm -f "$SUBMIT_DIR/setup.py"
+              rm -rf "$SUBMIT_DIR/build"
+              # 删除生成的 .c 文件
+              find "$SUBMIT_DIR" -name "*.c" -delete
             fi
           done
           
