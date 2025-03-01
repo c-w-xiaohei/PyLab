@@ -6,6 +6,12 @@ on:
       - submit
     types: [opened, synchronize, reopened]
 
+# 添加权限配置
+permissions:
+  contents: write    # 允许修改仓库内容（用于合并PR）
+  pull-requests: write    # 允许更新PR状态和评论PR
+  issues: write    # 允许评论issues
+
 jobs:
   validate-submission:
     runs-on: ubuntu-latest
