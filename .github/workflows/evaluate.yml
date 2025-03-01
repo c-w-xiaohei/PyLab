@@ -33,7 +33,7 @@ jobs:
         run: |
           gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body "自动测评已启动，请稍候..."
         env:
-          GITHUB_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+          GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
           
       - name: 查找更改的文件
         id: find-changes
