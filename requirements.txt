@@ -1,0 +1,2 @@
+py-markdown-table 
+cython==3.0.0 setuptools==60.0.0
