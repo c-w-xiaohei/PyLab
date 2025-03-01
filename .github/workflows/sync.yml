@@ -24,5 +24,14 @@ jobs:
       - name: 同步 main 到 submit
         run: |
           git checkout submit
-          git merge main --no-edit
+          # 尝试合并，如果有冲突则处理
+          if ! git merge main --no-edit; then
+            # 如果README.md有冲突，保留submit分支的版本
+            if git status | grep -q "README.md"; then
+              git checkout --theirs README.md
+              git add README.md
+            fi
+            # 提交解决的冲突
+            git commit -m "保留submit分支的README.md"
+          fi
           git push origin submit 
