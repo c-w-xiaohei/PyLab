@@ -7,7 +7,7 @@ import sys
 from datetime import datetime
 import traceback  # 导入 traceback 模块
 
-from .types import LabResult, EvaluationResults
+from .evaluation_types import LabResult, EvaluationResults
 from table_utils import TableParser
 
 CURRENT_DIR = os.path.normpath(os.path.dirname(os.path.abspath(__file__)))
