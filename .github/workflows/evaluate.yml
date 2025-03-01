@@ -117,19 +117,13 @@ jobs:
             }
             
             errorMessage += '\n- 请确保只修改 `/submit/[您的GitHub用户名]/lab[实验编号]/` 目录下的文件。';
+            errorMessage += '\n\n请修正以上问题后重新提交。';
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: errorMessage
-            });
-            
-            github.rest.pulls.update({
-              pull_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'closed'
             });
 
   evaluate-code:
@@ -149,25 +143,29 @@ jobs:
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
-          pip install cython==3.0.0 setuptools==60.0.0
-          pip install py-markdown-table
+          
+          # 安装根目录下的依赖
+          if [ -f "requirements.txt" ]; then
+            echo "安装根目录下的依赖..."
+            python -m pip install -r requirements.txt
+          fi
           
           # 安装实验依赖
-          for PATH in ${{ needs.validate-submission.outputs.paths }}; do
-            if [[ $PATH =~ ([^/]+)/lab([0-9]+) ]]; then
+          for LAB_PATH in ${{ needs.validate-submission.outputs.paths }}; do
+            if [[ $LAB_PATH =~ ([^/]+)/lab([0-9]+) ]]; then
               LAB_NUM="${BASH_REMATCH[2]}"
               # 检查并安装实验的依赖
               REQ_FILE="code/lab${LAB_NUM}/requirements.txt"
               if [ -f "$REQ_FILE" ]; then
                 echo "安装实验 ${LAB_NUM} 的依赖..."
-                pip install -r "$REQ_FILE"
+                python -m pip install -r "$REQ_FILE"
               fi
               
               # 检查并安装学习者的依赖
-              SUBMIT_REQ="submit/$PATH/requirements.txt"
+              SUBMIT_REQ="submit/$LAB_PATH/requirements.txt"
               if [ -f "$SUBMIT_REQ" ]; then
-                echo "安装学习者 ${PATH} 的依赖..."
-                pip install -r "$SUBMIT_REQ"
+                echo "安装学习者 ${LAB_PATH} 的依赖..."
+                python -m pip install -r "$SUBMIT_REQ"
               fi
             fi
           done
@@ -178,32 +176,24 @@ jobs:
           PATHS="${{ needs.validate-submission.outputs.paths }}"
           USERNAME="${{ needs.validate-submission.outputs.username }}"
           
-          for PATH in $PATHS; do
-            if [[ $PATH =~ ([^/]+)/lab([0-9]+) ]]; then
+          for LAB_PATH in $PATHS; do
+            if [[ $LAB_PATH =~ ([^/]+)/lab([0-9]+) ]]; then
               LAB_NUM="${BASH_REMATCH[2]}"
-              SUBMIT_DIR="submit/$PATH"
+              SUBMIT_DIR="submit/$LAB_PATH"
               
               echo "处理 $SUBMIT_DIR 中的Python文件..."
               
-              # 查找所有Python文件并编译
-              find "$SUBMIT_DIR" -name "*.py" | while read -r py_file; do
-                echo "编译文件: $py_file"
-                
-                # 获取目录和模块名
-                setup_dir=$(dirname "$py_file")
-                module_name=$(basename "$py_file" .py)
-                
-                # 复制evaluate/setup.py到需要的地方
-                cp evaluate/setup.py "$setup_dir/"
-                
-                # 编译Python文件
-                (cd "$setup_dir" && python setup.py build_ext --inplace "$module_name.py")
-                
-                # 清理临时文件
-                rm -f "$setup_dir/setup.py"
-                rm -rf "$setup_dir/build"
-                rm -f "$setup_dir/$module_name.c"
-              done
+              # 复制setup.py到提交目录
+              cp evaluate/setup.py "$SUBMIT_DIR/"
+              
+              # 进入目录并运行编译
+              (cd "$SUBMIT_DIR" && python setup.py build_ext --inplace)
+              
+              # 清理临时文件
+              rm -f "$SUBMIT_DIR/setup.py"
+              rm -rf "$SUBMIT_DIR/build"
+              # 删除生成的 .c 文件
+              find "$SUBMIT_DIR" -name "*.c" -delete
             fi
           done
           
@@ -215,15 +205,16 @@ jobs:
           
           # 构建测评命令参数
           PATH_ARGS=""
-          for PATH in $PATHS; do
+          for LAB_PATH in $PATHS; do
             if [[ -z "$PATH_ARGS" ]]; then
-              PATH_ARGS="$PATH"
+              PATH_ARGS="$LAB_PATH"
             else
-              PATH_ARGS="$PATH_ARGS $PATH"
+              PATH_ARGS="$PATH_ARGS $LAB_PATH"
             fi
           done
           
-          echo "测评路径: $PATH_ARGS"
+          # 添加当前目录到 PYTHONPATH，确保可以找到 evaluate 目录中的模块
+          export PYTHONPATH=$PYTHONPATH:$(pwd)/evaluate
           
           # 运行测评脚本，一次性测评所有路径
           RESULT=$(python -m evaluate.main --path $PATH_ARGS)
