@@ -232,21 +232,10 @@ jobs:
           echo -e "$RESULT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           
-      - name: 检查权限
-        run: |
-          echo "正在检查 Token 权限..."
-          echo "Repository: ${{ github.repository }}"
-          echo "PR Number: ${{ github.event.pull_request.number }}"
-          
-          # 测试 API 访问
-          curl -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-               -H "Accept: application/vnd.github.v3+json" \
-               https://api.github.com/repos/${{ github.repository }}
-          
       - name: 提交测评结果
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.WORKFLOW_TOKEN }}
           script: |
             const details = `${{ steps.evaluate.outputs.details }}`;
             const exitCode = parseInt('${{ steps.evaluate.outputs.exit_code }}');
@@ -257,7 +246,6 @@ jobs:
             try {
               console.log("开始处理测评结果...");
               console.log(`退出码: ${exitCode}`);
-              console.log(`详细信息: ${details}`);
               
               if (exitCode !== 0) {
                 commentBody = `❌ **测评脚本执行失败**，退出码: ${exitCode}\n\n这可能是由系统问题导致的，而非您代码的问题。请联系仓库维护者寻求帮助。`;
