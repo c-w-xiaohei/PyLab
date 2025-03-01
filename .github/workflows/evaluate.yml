@@ -232,6 +232,17 @@ jobs:
           echo -e "$RESULT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           
+      - name: 检查权限
+        run: |
+          echo "正在检查 Token 权限..."
+          echo "Repository: ${{ github.repository }}"
+          echo "PR Number: ${{ github.event.pull_request.number }}"
+          
+          # 测试 API 访问
+          curl -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+               -H "Accept: application/vnd.github.v3+json" \
+               https://api.github.com/repos/${{ github.repository }}
+          
       - name: 提交测评结果
         uses: actions/github-script@v6
         with:
