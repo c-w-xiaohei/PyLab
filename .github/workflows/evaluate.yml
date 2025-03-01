@@ -7,9 +7,9 @@ on:
 
 # 添加权限配置
 permissions:
-  contents: write    # 允许修改仓库内容（用于合并PR）
-  pull-requests: write    # 允许更新PR状态和评论PR
-  issues: write    # 允许评论issues
+  contents: read
+  pull-requests: read
+  issues: read
 
 jobs:
   validate-submission:
@@ -28,12 +28,6 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
           # fetch-depth: 0
-          
-      - name: Comment on PR
-        run: |
-          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body "自动测评已启动，请稍候..."
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
           
       - name: 查找更改的文件
@@ -150,6 +144,9 @@ jobs:
     if: needs.validate-submission.outputs.valid == 'true'
     runs-on: ubuntu-latest
     name: 测评代码
+    outputs: # 定义输出
+      exit_code: ${{ steps.evaluate.outputs.exit_code }}
+      details: ${{ steps.evaluate.outputs.details }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v3
@@ -244,113 +241,3 @@ jobs:
           echo "details<<EOF" >> $GITHUB_OUTPUT
           echo -e "$RESULT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          
-      - name: 提交测评结果
-        uses: actions/github-script@v6
-        env:
-          GITHUB_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
-        with:
-          script: |
-            const details = `${{ steps.evaluate.outputs.details }}`;
-            const exitCode = parseInt('${{ steps.evaluate.outputs.exit_code }}');
-            
-            let commentBody = '';
-            let passed = false;
-            
-            try {
-              console.log("开始处理测评结果...");
-              console.log(`退出码: ${exitCode}`);
-              
-              if (exitCode !== 0) {
-                commentBody = `❌ **测评脚本执行失败**，退出码: ${exitCode}\n\n这可能是由系统问题导致的，而非您代码的问题。请联系仓库维护者寻求帮助。`;
-              } else {
-                try {
-                  const resultObj = JSON.parse(details);
-                  console.log("JSON解析成功");
-                  
-                  // 检查是否有顶层错误
-                  if (resultObj.error) {
-                    commentBody = `❌ **测评过程发生错误！**\n\n这可能是测评系统的问题，请联系仓库维护者寻求帮助。`;
-                  } else {
-                    // 检查每个实验的passed字段和table_update_error字段
-                    const allPassed = resultObj.every(item => item.passed === true);
-                    const hasTableError = resultObj.some(item => item.table_update_error);
-                    
-                    passed = allPassed && !hasTableError;
-                    
-                    if (passed) {
-                      commentBody = '✅ **测评通过！** 恭喜您成功完成了本次实验任务！';
-                    } else if (hasTableError) {
-                      commentBody = '❌ **测评未通过 - 成绩表更新错误**\n\n在更新成绩表过程中发生错误，这可能是系统问题。请联系仓库维护者寻求帮助。';
-                    } else {
-                      // 创建用户友好的错误报告，不展示完整details
-                      let failedLabs = [];
-                      resultObj.forEach(lab => {
-                        if (!lab.passed) {
-                          let labSummary = `**实验 ${lab.lab_num}**: `;
-                          
-                          // 计算通过和失败的任务数
-                          let passedTasks = 0;
-                          let failedTasks = 0;
-                          let hasError = false;
-                          
-                          Object.values(lab.tasks).forEach(task => {
-                            if (task.returncode === 0) {
-                              passedTasks++;
-                            } else {
-                              failedTasks++;
-                              if (task.error) hasError = true;
-                            }
-                          });
-                          
-                          labSummary += `通过 ${passedTasks} 个任务，失败 ${failedTasks} 个任务`;
-                          if (hasError) labSummary += "（代码执行过程中出现错误）";
-                          
-                          failedLabs.push(labSummary);
-                        }
-                      });
-                      
-                      commentBody = '❌ **测评未通过**\n\n' + failedLabs.join('\n') + '\n\n请检查您的代码并解决问题。修改后重新提交PR即可重新触发测评。';
-                    }
-                  }
-                } catch (parseError) {
-                  console.error(`JSON解析失败: ${parseError.message}`);
-                  console.error(`原始数据: ${details}`);
-                  commentBody = `❌ **测评结果解析失败！**\n\n这是测评系统内部问题，请联系仓库维护者寻求帮助。`;
-                }
-              }
-            } catch (e) {
-              console.error(`处理测评结果时发生错误: ${e.message}`);
-              console.error(e.stack);
-              commentBody = `❌ **测评结果处理失败！**\n\n这是测评系统内部问题，请联系仓库维护者寻求帮助。`;
-            }
-            
-            console.log(`准备提交评论: ${commentBody}`);
-            console.log(`Token权限检查: 正在尝试访问PR #${context.issue.number}`);
-            
-            try {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: commentBody
-              });
-              console.log("评论创建成功");
-              
-              if (passed) {
-                console.log("测试通过，尝试合并PR");
-                await github.rest.pulls.update({
-                  pull_number: context.issue.number,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  state: 'closed',
-                  merge_method: 'merge'
-                });
-                console.log("PR合并成功");
-              }
-            } catch (apiError) {
-              console.error(`API调用失败: ${apiError.message}`);
-              console.error(`状态码: ${apiError.status}`);
-              console.error(`响应数据: ${JSON.stringify(apiError.response?.data || {})}`);
-              core.setFailed(`GitHub API调用失败: ${apiError.message}`);
-            }
