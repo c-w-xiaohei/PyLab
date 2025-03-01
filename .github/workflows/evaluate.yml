@@ -28,9 +28,10 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
           # fetch-depth: 0
+          
       - name: Comment on PR
         run: |
-          gh pr comment ${{ github.event.pull_request.number }} --body "自动评论"
+          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body "自动测评已启动，请稍候..."
         env:
           GITHUB_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
           
