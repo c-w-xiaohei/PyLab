@@ -6,6 +6,12 @@ on:
       - submit
     types: [opened, synchronize, reopened]
 
+# 添加权限配置
+permissions:
+  contents: write    # 允许修改仓库内容（用于合并PR）
+  pull-requests: write    # 允许更新PR状态和评论PR
+  issues: write    # 允许评论issues
+
 jobs:
   validate-submission:
     runs-on: ubuntu-latest
@@ -239,13 +245,13 @@ jobs:
             
             try {
               if (exitCode !== 0) {
-                commentBody = `❌ 测评脚本执行失败，退出码: ${exitCode}\n\n原始输出：\n\`\`\`\n${details}\n\`\`\``;
+                commentBody = `❌ **测评脚本执行失败**，退出码: ${exitCode}\n\n这可能是由系统问题导致的，而非您代码的问题。请联系仓库维护者寻求帮助。`;
               } else {
                 const resultObj = JSON.parse(details);
                 
                 // 检查是否有顶层错误
                 if (resultObj.error) {
-                  commentBody = `❌ 测评过程发生错误！\n\n错误信息：${resultObj.error}\n\n完整结果：\n\`\`\`json\n${details}\n\`\`\``;
+                  commentBody = `❌ **测评过程发生错误！**\n\n这可能是测评系统的问题，请联系仓库维护者寻求帮助。`;
                 } else {
                   // 检查每个实验的passed字段和table_update_error字段
                   const allPassed = resultObj.every(item => item.passed === true);
@@ -254,17 +260,44 @@ jobs:
                   passed = allPassed && !hasTableError;
                   
                   if (passed) {
-                    commentBody = '✅ 测评通过！\n\n```json\n' + details + '\n```';
+                    commentBody = '✅ **测评通过！** 恭喜您成功完成了本次实验任务！';
                   } else if (hasTableError) {
-                    commentBody = '❌ 测评未通过！表格更新过程中发生错误：\n\n```json\n' + details + '\n```';
+                    commentBody = '❌ **测评未通过 - 成绩表更新错误**\n\n在更新成绩表过程中发生错误，这可能是系统问题。请联系仓库维护者寻求帮助。';
                   } else {
-                    commentBody = '❌ 测评未通过！请检查以下测评结果并修改代码：\n\n```json\n' + details + '\n```';
+                    // 创建用户友好的错误报告，不展示完整details
+                    let failedLabs = [];
+                    resultObj.forEach(lab => {
+                      if (!lab.passed) {
+                        let labSummary = `**实验 ${lab.lab_num}**: `;
+                        
+                        // 计算通过和失败的任务数
+                        let passedTasks = 0;
+                        let failedTasks = 0;
+                        let hasError = false;
+                        
+                        Object.values(lab.tasks).forEach(task => {
+                          if (task.returncode === 0) {
+                            passedTasks++;
+                          } else {
+                            failedTasks++;
+                            if (task.error) hasError = true;
+                          }
+                        });
+                        
+                        labSummary += `通过 ${passedTasks} 个任务，失败 ${failedTasks} 个任务`;
+                        if (hasError) labSummary += "（代码执行过程中出现错误）";
+                        
+                        failedLabs.push(labSummary);
+                      }
+                    });
+                    
+                    commentBody = '❌ **测评未通过**\n\n' + failedLabs.join('\n') + '\n\n请检查您的代码并解决问题。修改后重新提交PR即可重新触发测评。';
                   }
                 }
               }
             } catch (e) {
-              // JSON解析失败，直接显示原始输出
-              commentBody = `❌ 测评结果解析失败！\n\n原始输出：\n\`\`\`\n${details}\n\`\`\`\n\n解析错误：${e.message}`;
+              // JSON解析失败
+              commentBody = `❌ **测评结果解析失败！**\n\n这是测评系统内部问题，请联系仓库维护者寻求帮助。`;
             }
             
             github.rest.issues.createComment({
