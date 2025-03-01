@@ -1,0 +1,313 @@
+name: 测评学习者代码
+
+on:
+  pull_request:
+    branches:
+      - submit
+    types: [opened, synchronize, reopened]
+
+jobs:
+  validate-submission:
+    runs-on: ubuntu-latest
+    name: 验证提交格式
+    outputs:
+      paths: ${{ steps.find-changes.outputs.paths }}
+      username: ${{ steps.extract-info.outputs.username }}
+      valid: ${{ steps.validate-path.outputs.valid }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
+      - name: 查找更改的文件
+        id: find-changes
+        run: |
+          # 获取PR中更改的文件列表
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
+          echo "Changed files: $CHANGED_FILES"
+          
+          # 检查是否只有submit目录下的文件被修改
+          VALID_CHANGES=true
+          PATHS=""
+          
+          for file in $CHANGED_FILES; do
+            # 检查文件是否在submit目录下
+            if [[ ! $file =~ ^submit/ ]]; then
+              VALID_CHANGES=false
+              echo "错误: 文件 $file 不在submit目录下"
+              continue
+            fi
+            
+            # 提取用户名和实验编号
+            if [[ $file =~ ^submit/([^/]+)/lab([0-9]+)/ ]]; then
+              USERNAME="${BASH_REMATCH[1]}"
+              LAB_NUM="${BASH_REMATCH[2]}"
+              LAB_PATH="$USERNAME/lab$LAB_NUM"
+              
+              # 添加到路径列表，避免重复
+              if [[ ! $PATHS =~ $LAB_PATH ]]; then
+                if [[ -z "$PATHS" ]]; then
+                  PATHS="$LAB_PATH"
+                else
+                  PATHS="$PATHS $LAB_PATH"
+                fi
+              fi
+            else
+              VALID_CHANGES=false
+              echo "错误: 文件 $file 不符合提交格式"
+            fi
+          done
+          
+          # 输出结果
+          echo "valid=$VALID_CHANGES" >> $GITHUB_OUTPUT
+          echo "paths=$PATHS" >> $GITHUB_OUTPUT
+          
+      - name: 提取用户信息
+        id: extract-info
+        run: |
+          # 从paths中提取用户名
+          PATHS="${{ steps.find-changes.outputs.paths }}"
+          if [[ $PATHS =~ ^([^/]+)/ ]]; then
+            USERNAME="${BASH_REMATCH[1]}"
+            echo "username=$USERNAME" >> $GITHUB_OUTPUT
+          else
+            echo "username=unknown" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: 验证用户名匹配
+        id: validate-username
+        run: |
+          PR_USERNAME="${{ github.event.pull_request.user.login }}"
+          SUBMISSION_USERNAME="${{ steps.extract-info.outputs.username }}"
+          
+          echo "PR用户名: $PR_USERNAME"
+          echo "提交路径用户名: $SUBMISSION_USERNAME"
+          
+          if [[ "$PR_USERNAME" == "$SUBMISSION_USERNAME" ]]; then
+            echo "用户名匹配验证通过"
+            echo "username_valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "错误: PR用户名与提交路径用户名不匹配"
+            echo "username_valid=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: 验证路径格式
+        id: validate-path
+        run: |
+          VALID="${{ steps.find-changes.outputs.valid }}"
+          USERNAME_VALID="${{ steps.validate-username.outputs.username_valid }}"
+          
+          if [[ "$VALID" == "true" && "$USERNAME_VALID" == "true" && ! -z "${{ steps.find-changes.outputs.paths }}" ]]; then
+            echo "valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "valid=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: 提交格式错误反馈
+        if: steps.validate-path.outputs.valid != 'true'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            let errorMessage = '❌ 提交格式错误！';
+            
+            if ('${{ steps.validate-username.outputs.username_valid }}' === 'false') {
+              errorMessage += '\n- PR用户名与提交路径用户名不匹配。请确保提交的路径中的用户名与您的GitHub用户名一致。';
+            }
+            
+            errorMessage += '\n- 请确保只修改 `/submit/[您的GitHub用户名]/lab[实验编号]/` 目录下的文件。';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: errorMessage
+            });
+            
+            github.rest.pulls.update({
+              pull_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed'
+            });
+
+  evaluate-code:
+    needs: validate-submission
+    if: needs.validate-submission.outputs.valid == 'true'
+    runs-on: ubuntu-latest
+    name: 测评代码
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+        
+      - name: 设置Python环境
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install cython==3.0.0 setuptools==60.0.0
+          pip install py-markdown-table
+          
+          # 安装实验依赖
+          for PATH in ${{ needs.validate-submission.outputs.paths }}; do
+            if [[ $PATH =~ ([^/]+)/lab([0-9]+) ]]; then
+              LAB_NUM="${BASH_REMATCH[2]}"
+              # 检查并安装实验的依赖
+              REQ_FILE="code/lab${LAB_NUM}/requirements.txt"
+              if [ -f "$REQ_FILE" ]; then
+                echo "安装实验 ${LAB_NUM} 的依赖..."
+                pip install -r "$REQ_FILE"
+              fi
+              
+              # 检查并安装学习者的依赖
+              SUBMIT_REQ="submit/$PATH/requirements.txt"
+              if [ -f "$SUBMIT_REQ" ]; then
+                echo "安装学习者 ${PATH} 的依赖..."
+                pip install -r "$SUBMIT_REQ"
+              fi
+            fi
+          done
+          
+      - name: 编译学习者代码
+        run: |
+          # 获取提交的路径列表
+          PATHS="${{ needs.validate-submission.outputs.paths }}"
+          USERNAME="${{ needs.validate-submission.outputs.username }}"
+          
+          for PATH in $PATHS; do
+            if [[ $PATH =~ ([^/]+)/lab([0-9]+) ]]; then
+              LAB_NUM="${BASH_REMATCH[2]}"
+              SUBMIT_DIR="submit/$PATH"
+              
+              echo "处理 $SUBMIT_DIR 中的Python文件..."
+              
+              # 查找所有Python文件并编译
+              find "$SUBMIT_DIR" -name "*.py" | while read -r py_file; do
+                echo "编译文件: $py_file"
+                
+                # 获取目录和模块名
+                setup_dir=$(dirname "$py_file")
+                module_name=$(basename "$py_file" .py)
+                
+                # 复制evaluate/setup.py到需要的地方
+                cp evaluate/setup.py "$setup_dir/"
+                
+                # 编译Python文件
+                (cd "$setup_dir" && python setup.py build_ext --inplace "$module_name.py")
+                
+                # 清理临时文件
+                rm -f "$setup_dir/setup.py"
+                rm -rf "$setup_dir/build"
+                rm -f "$setup_dir/$module_name.c"
+              done
+            fi
+          done
+          
+      - name: 运行测评
+        id: evaluate
+        run: |
+          # 获取提交的路径列表
+          PATHS="${{ needs.validate-submission.outputs.paths }}"
+          
+          # 构建测评命令参数
+          PATH_ARGS=""
+          for PATH in $PATHS; do
+            if [[ -z "$PATH_ARGS" ]]; then
+              PATH_ARGS="$PATH"
+            else
+              PATH_ARGS="$PATH_ARGS $PATH"
+            fi
+          done
+          
+          echo "测评路径: $PATH_ARGS"
+          
+          # 运行测评脚本，一次性测评所有路径
+          RESULT=$(python -m evaluate.main --path $PATH_ARGS)
+          EXIT_CODE=$?
+          
+          # 保存结果
+          EVALUATION_RESULTS="$RESULT"
+          
+          # 检查JSON结果中是否所有实验都通过
+          if [ $EXIT_CODE -eq 0 ]; then
+            # 首先检查是否有顶层错误
+            if echo "$RESULT" | jq -e '.error' > /dev/null 2>&1; then
+              OVERALL_RESULT=false
+              echo "发现顶层错误"
+            else
+              # 检查每个实验的passed字段和table_update_error字段
+              PASSED_CHECK=$(echo "$RESULT" | jq -r 'all(.passed == true)')
+              TABLE_ERROR_CHECK=$(echo "$RESULT" | jq -r 'any(.table_update_error != null)')
+              
+              if [[ "$PASSED_CHECK" == "true" && "$TABLE_ERROR_CHECK" == "false" ]]; then
+                OVERALL_RESULT=true
+              else
+                OVERALL_RESULT=false
+                echo "测评未通过或表格更新错误"
+              fi
+            fi
+          else
+            OVERALL_RESULT=false
+            echo "测评脚本执行失败，退出码: $EXIT_CODE"
+          fi
+          
+          # 输出结果
+          echo "result=$OVERALL_RESULT" >> $GITHUB_OUTPUT
+          echo "details<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$EVALUATION_RESULTS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+      - name: 提交测评结果
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const result = ${{ steps.evaluate.outputs.result }};
+            const details = `${{ steps.evaluate.outputs.details }}`;
+            
+            let commentBody = '';
+            try {
+              const resultObj = JSON.parse(details);
+              
+              // 检查是否有顶层错误
+              if (resultObj.error) {
+                commentBody = `❌ 测评过程发生错误！\n\n错误信息：${resultObj.error}\n\n完整结果：\n\`\`\`json\n${details}\n\`\`\``;
+              } else {
+                // 处理正常的测评结果
+                if (result === 'true') {
+                  commentBody = '✅ 测评通过！\n\n```json\n' + details + '\n```';
+                } else {
+                  // 检查是否有表格更新错误
+                  const hasTableError = resultObj.some(item => item.table_update_error);
+                  if (hasTableError) {
+                    commentBody = '❌ 测评未通过！表格更新过程中发生错误：\n\n```json\n' + details + '\n```';
+                  } else {
+                    commentBody = '❌ 测评未通过！请检查以下测评结果并修改代码：\n\n```json\n' + details + '\n```';
+                  }
+                }
+              }
+            } catch (e) {
+              // JSON解析失败，直接显示原始输出
+              commentBody = `❌ 测评结果解析失败！\n\n原始输出：\n\`\`\`\n${details}\n\`\`\``;
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: commentBody
+            });
+            
+            if (result === 'true') {
+              github.rest.pulls.update({
+                pull_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'closed',
+                merge_method: 'merge'
+              });
+            }

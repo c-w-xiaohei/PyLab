@@ -1,0 +1,28 @@
+name: 同步 main 分支到 submit 分支
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  sync-branches:
+    runs-on: ubuntu-latest
+    name: 同步分支
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: 配置 Git
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+      
+      - name: 同步 main 到 submit
+        run: |
+          git checkout submit
+          git merge main --no-edit
+          git push origin submit 
