@@ -1,7 +1,7 @@
 from py_markdown_table.markdown_table import markdown_table
 from typing import List, Dict, TypedDict, Optional
 from datetime import datetime
-from .types import TaskResult
+from .evaluation_types import TaskResult
 
 class UserAchievement:
     """表示单个用户的成就数据"""
