@@ -166,7 +166,7 @@ def main():
             results.append(lab_results)  # 将每个 lab 的结果添加到总结果中
 
         # 5. 输出 JSON 结果到标准输出
-        print(json.dumps(results, separators=(',', ':'), ensure_ascii=False))
+        print(json.dumps(results, separators=(',', ':'), ensure_ascii=False),flush=True)
 
         # 6. 保存表格（无论实验是否通过都保存）
         try:
