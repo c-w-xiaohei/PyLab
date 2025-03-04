@@ -19,7 +19,8 @@ jobs:
       paths: ${{ steps.find-changes.outputs.paths }}
       username: ${{ steps.extract-info.outputs.username }}
       valid: ${{ steps.validate-path.outputs.valid }}
-      
+      pr_number: ${{ github.event.pull_request.number }}
+    
     steps:
       - name: 检出代码
         uses: actions/checkout@v3
@@ -27,38 +28,31 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
-          # fetch-depth: 0
-          
           
       - name: 查找更改的文件
         id: find-changes
         run: |
-          # 使用 GitHub API 获取 PR 中更改的文件
           PR_FILES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" | \
             jq -r '.[].filename')
           
           echo "Changed files via API: $PR_FILES"
           
-          # 检查是否只有submit目录下的文件被修改
           VALID_CHANGES=true
           PATHS=""
           
           for file in $PR_FILES; do
-            # 检查文件是否在submit目录下
             if [[ ! $file =~ ^submit/ ]]; then
               VALID_CHANGES=false
               echo "错误: 文件 $file 不在submit目录下"
               continue
             fi
             
-            # 提取用户名和实验编号
             if [[ $file =~ ^submit/([^/]+)/lab([0-9]+)/ ]]; then
               USERNAME="${BASH_REMATCH[1]}"
               LAB_NUM="${BASH_REMATCH[2]}"
               LAB_PATH="$USERNAME/lab$LAB_NUM"
               
-              # 添加到路径列表，避免重复
               if [[ ! $PATHS =~ $LAB_PATH ]]; then
                 if [[ -z "$PATHS" ]]; then
                   PATHS="$LAB_PATH"
@@ -72,14 +66,12 @@ jobs:
             fi
           done
           
-          # 输出结果
           echo "valid=$VALID_CHANGES" >> $GITHUB_OUTPUT
           echo "paths=$PATHS" >> $GITHUB_OUTPUT
           
       - name: 提取用户信息
         id: extract-info
         run: |
-          # 从paths中提取用户名
           PATHS="${{ steps.find-changes.outputs.paths }}"
           if [[ $PATHS =~ ^([^/]+)/ ]]; then
             USERNAME="${BASH_REMATCH[1]}"
@@ -93,9 +85,6 @@ jobs:
         run: |
           PR_USERNAME="${{ github.event.pull_request.user.login }}"
           SUBMISSION_USERNAME="${{ steps.extract-info.outputs.username }}"
-          
-          echo "PR用户名: $PR_USERNAME"
-          echo "提交路径用户名: $SUBMISSION_USERNAME"
           
           if [[ "$PR_USERNAME" == "$SUBMISSION_USERNAME" ]]; then
             echo "用户名匹配验证通过"
@@ -116,37 +105,15 @@ jobs:
           else
             echo "valid=false" >> $GITHUB_OUTPUT
           fi
-          
-      - name: 提交格式错误反馈
-        if: steps.validate-path.outputs.valid != 'true'
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            let errorMessage = '❌ 提交格式错误！';
-            
-            if ('${{ steps.validate-username.outputs.username_valid }}' === 'false') {
-              errorMessage += '\n- PR用户名与提交路径用户名不匹配。请确保提交的路径中的用户名与您的GitHub用户名一致。';
-            }
-            
-            errorMessage += '\n- 请确保只修改 `/submit/[您的GitHub用户名]/lab[实验编号]/` 目录下的文件。';
-            errorMessage += '\n\n请修正以上问题后重新提交。';
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: errorMessage
-            });
 
   evaluate-code:
     needs: validate-submission
     if: needs.validate-submission.outputs.valid == 'true'
     runs-on: ubuntu-latest
     name: 测评代码
-    outputs: # 定义输出
-      exit_code: ${{ steps.evaluate.outputs.exit_code }}
-      details: ${{ steps.evaluate.outputs.details }}
+    outputs:
+      evaluation_result: ${{ steps.evaluate.outputs.result }}
+      evaluation_exit_code: ${{ steps.evaluate.outputs.exit_code }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v3
@@ -160,24 +127,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           
-          # 安装根目录下的依赖
           if [ -f "requirements.txt" ]; then
             echo "安装根目录下的依赖..."
             python -m pip install -r requirements.txt
           fi
           
-          # 安装实验依赖
           for LAB_PATH in ${{ needs.validate-submission.outputs.paths }}; do
             if [[ $LAB_PATH =~ ([^/]+)/lab([0-9]+) ]]; then
               LAB_NUM="${BASH_REMATCH[2]}"
-              # 检查并安装实验的依赖
               REQ_FILE="code/lab${LAB_NUM}/requirements.txt"
               if [ -f "$REQ_FILE" ]; then
                 echo "安装实验 ${LAB_NUM} 的依赖..."
                 python -m pip install -r "$REQ_FILE"
               fi
               
-              # 检查并安装学习者的依赖
               SUBMIT_REQ="submit/$LAB_PATH/requirements.txt"
               if [ -f "$SUBMIT_REQ" ]; then
                 echo "安装学习者 ${LAB_PATH} 的依赖..."
@@ -188,7 +151,6 @@ jobs:
           
       - name: 编译学习者代码
         run: |
-          # 获取提交的路径列表
           PATHS="${{ needs.validate-submission.outputs.paths }}"
           USERNAME="${{ needs.validate-submission.outputs.username }}"
           
@@ -199,16 +161,12 @@ jobs:
               
               echo "处理 $SUBMIT_DIR 中的Python文件..."
               
-              # 复制setup.py到提交目录
               cp evaluate/_setup.py "$SUBMIT_DIR/setup.py"
               
-              # 进入目录并运行编译
               (cd "$SUBMIT_DIR" && python setup.py build_ext --inplace)
               
-              # 清理临时文件
               rm -f "$SUBMIT_DIR/setup.py"
               rm -rf "$SUBMIT_DIR/build"
-              # 删除生成的 .c 文件
               find "$SUBMIT_DIR" -name "*.c" -delete
             fi
           done
@@ -216,10 +174,8 @@ jobs:
       - name: 运行测评
         id: evaluate
         run: |
-          # 获取提交的路径列表
           PATHS="${{ needs.validate-submission.outputs.paths }}"
           
-          # 构建测评命令参数
           PATH_ARGS=""
           for LAB_PATH in $PATHS; do
             if [[ -z "$PATH_ARGS" ]]; then
@@ -229,23 +185,46 @@ jobs:
             fi
           done
           
-          # 添加当前目录到 PYTHONPATH，确保可以找到 evaluate 目录中的模块
           export PYTHONPATH=$PYTHONPATH:$(pwd)/evaluate
           
-          # 运行测评脚本，一次性测评所有路径
           RESULT=$(python -m evaluate.main --path $PATH_ARGS)
           EXIT_CODE=$?
           
-          # 保存结果和退出码
+          # 将结果输出到job outputs
+          echo "result=$RESULT" >> $GITHUB_OUTPUT
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
-          echo "details<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$RESULT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: 保存测评结果
-        uses: actions/upload-artifact@v3
+  upload-results:
+    needs: [validate-submission, evaluate-code]
+    if: always()
+    runs-on: ubuntu-latest
+    name: 上传结果
+    steps:
+      - name: 准备结果JSON
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // 构建结果对象
+            const results = {
+              pr_number: ${{ needs.validate-submission.outputs.pr_number }},
+              validation: {
+                valid: ${{ needs.validate-submission.outputs.valid == 'true' }},
+                paths: '${{ needs.validate-submission.outputs.paths }}',
+                username: '${{ needs.validate-submission.outputs.username }}'
+              },
+              evaluation: {
+                result: ${{ needs.evaluate-code.outputs.evaluation_result || '"validation_failed"' }},
+                exit_code: ${{ needs.evaluate-code.outputs.evaluation_exit_code || 1 }}
+              }
+            };
+            
+            // 写入JSON文件
+            fs.writeFileSync('evaluation_results.json', JSON.stringify(results, null, 2));
+
+      - name: 上传结果
+        uses: actions/upload-artifact@v4
         with:
           name: evaluation-results
-          path: |
-            echo "${{ steps.evaluate.outputs.exit_code }}" > exit_code.txt
-            echo "${{ steps.evaluate.outputs.details }}" > details.txt
+          path: evaluation_results.json 
