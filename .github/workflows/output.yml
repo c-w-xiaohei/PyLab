@@ -74,10 +74,16 @@ jobs:
             function validateEvaluationResult(result) {
                 if (!Array.isArray(result)) return false;
                 return result.every(item => {
-                  return item && typeof item === 'object' && 
-                         'passed' in item && 
-                         'lab_num' in item &&
-                         'tasks' in item;
+                    const isValid = item && 
+                                  typeof item === 'object' && 
+                                  'passed' in item && 
+                                  'lab_num' in item &&
+                                  'tasks' in item;
+                    
+                    if (!isValid) {
+                        console.log('Invalid item:', item);
+                    }
+                    return isValid;
                 });
             }
 
@@ -218,7 +224,10 @@ jobs:
 
                 // 3.6 解析测评结果
                 const resultObj = evaluation.result;
+                console.log('Raw evaluation result:', JSON.stringify(resultObj, null, 2));
+                
                 if (!validateEvaluationResult(resultObj)) {
+                    console.log('Validation failed for evaluation result');
                     throw new Error('评测结果格式无效');
                 }
 
@@ -230,7 +239,6 @@ jobs:
 
             } catch (error) {
                 console.error('处理测评结果时发生错误:', error);
-                console.error('错误堆栈:', error.stack);
                 console.error('当前上下文:', {
                     results: results,
                     pr_number: pr_number,
