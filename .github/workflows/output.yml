@@ -17,168 +17,229 @@ jobs:
     if: github.event.workflow_run.conclusion == 'success'
     steps:
       - name: 下载测评结果
+        id: download-results
         uses: actions/github-script@v7
         with:
           script: |
+            //===================================================
+            // 1. 下载测评结果压缩包
+            //===================================================
             const allArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
               owner: context.repo.owner,
               repo: context.repo.repo,
               run_id: context.payload.workflow_run.id,
             });
-            
+
             const matchArtifact = allArtifacts.data.artifacts.filter((artifact) => {
               return artifact.name == "evaluation-results"
             })[0];
-            
+
             if (!matchArtifact) {
               throw new Error('找不到测评结果文件');
             }
-            
+
             const download = await github.rest.actions.downloadArtifact({
               owner: context.repo.owner,
               repo: context.repo.repo,
               artifact_id: matchArtifact.id,
               archive_format: 'zip',
             });
-            
+
             const fs = require('fs');
             fs.writeFileSync('evaluation-results.zip', Buffer.from(download.data));
-      
+
       - name: 解压测评结果
         run: unzip evaluation-results.zip
-        
+
       - name: 处理测评结果
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            
-            // 验证JSON数据结构的函数
+
+            //===================================================
+            // 2. 辅助函数定义
+            //===================================================
+
+            // 2.1 验证JSON数据结构的函数
             function validateResultStructure(data) {
-              if (!data || typeof data !== 'object') return false;
-              if (!('pr_number' in data)) return false;
-              if (!('validation' in data) || typeof data.validation !== 'object') return false;
-              if (!('evaluation' in data) || typeof data.evaluation !== 'object') return false;
-              return true;
+                if (!data || typeof data !== 'object') return false;
+                if (!('validation' in data) || typeof data.validation !== 'object') return false;
+                if (!('evaluation' in data) || typeof data.evaluation !== 'object') return false;
+                return true;
             }
 
-            // 验证评测结果对象的函数
+            // 2.2 验证评测结果对象的函数
             function validateEvaluationResult(result) {
-              if (!Array.isArray(result)) return false;
-              return result.every(item => {
-                return item && typeof item === 'object' && 
-                       'passed' in item && 
-                       'lab_num' in item &&
-                       'tasks' in item;
-              });
+                if (!Array.isArray(result)) return false;
+                return result.every(item => {
+                  return item && typeof item === 'object' && 
+                         'passed' in item && 
+                         'lab_num' in item &&
+                         'tasks' in item;
+                });
             }
 
+            // 2.3 处理测评结果并生成评论内容
+            function processEvaluationResults(resultObj) {
+                const allPassed = resultObj.every(item => item.passed === true);
+                const hasTableError = resultObj.some(item => item.table_update_error);
+
+                if (allPassed && !hasTableError) {
+                    return {
+                        passed: true,
+                        systemError: false,
+                        commentBody: '✅ **测评通过！** 恭喜您成功完成了本次实验任务！'
+                    };
+                }
+
+                if (hasTableError) {
+                    return {
+                        passed: false,
+                        systemError: true,
+                        commentBody: '❌ **测评未通过 - 成绩表更新错误**\n\n在更新成绩表过程中发生错误，这是系统问题。我们已经记录了这个问题，并会尽快修复。\n\n如果问题持续存在，请在Issue中报告这个问题。'
+                    };
+                }
+
+                let failedLabs = [];
+                resultObj.forEach(lab => {
+                    if (!lab.passed) {
+                        let labSummary = generateLabSummary(lab);
+                        failedLabs.push(labSummary);
+                    }
+                });
+
+                return {
+                    passed: false,
+                    systemError: false,
+                    commentBody: '❌ **测评未通过**\n\n' + failedLabs.join('\n\n') + '\n\n请检查您的代码并解决问题。修改后重新提交PR即可重新触发测评。'
+                };
+            }
+
+            // 2.4 生成单个实验的总结信息
+            function generateLabSummary(lab) {
+                let labSummary = `**实验 ${lab.lab_num}**: `;
+                let passedTasks = 0;
+                let failedTasks = 0;
+                let hasError = false;
+
+                Object.entries(lab.tasks).forEach(([taskName, task]) => {
+                    if (task.returncode === 0) {
+                        passedTasks++;
+                    } else {
+                        failedTasks++;
+                        if (task.error) {
+                            hasError = true;
+                            labSummary += `\n- ${taskName}: ${task.error}`;
+                        }
+                    }
+                });
+
+                labSummary += `\n通过 ${passedTasks} 个任务，失败 ${failedTasks} 个任务`;
+                if (hasError) labSummary += "\n（详细错误信息请见上方）";
+                return labSummary;
+            }
+
+            // 2.5 处理评论和PR合并
+            async function handleCommentAndMerge(github, context, pr_number, commentBody, passed, systemError) {
+                try {
+                    await github.rest.issues.createComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: pr_number,
+                        body: commentBody
+                    });
+
+                    if (systemError) {
+                        const issueBody = `测评过程中发生系统错误\n\nPR: #${pr_number}\n\n错误信息：\n\`\`\`\n${commentBody}\n\`\`\`\n\n请相关开发人员尽快检查并修复问题。`;
+                        await github.rest.issues.create({
+                            owner: context.repo.owner,
+                            repo: context.repo.repo,
+                            title: `测评系统错误 - PR #${pr_number}`,
+                            body: issueBody,
+                            labels: ['bug', 'evaluation-error']
+                        });
+                    }
+
+                    if (passed && !systemError) {
+                        await github.rest.pulls.merge({
+                            owner: context.repo.owner,
+                            repo: context.repo.repo,
+                            pull_number: pr_number,
+                            merge_method: 'merge'
+                        });
+                    }
+                } catch (error) {
+                    console.error('创建评论或合并PR时发生错误:', error);
+                    throw error;
+                }
+            }
+
+            //===================================================
+            // 3. 主处理逻辑
+            //===================================================
+
+            // 3.1 初始化变量
             let results;
             let commentBody = '';
             let passed = false;
+            let systemError = false;
             let pr_number;
 
             try {
-              // 读取并解析结果JSON
-              const rawData = fs.readFileSync('evaluation_results.json', 'utf8');
-              results = JSON.parse(rawData);
-              
-              // 验证基本数据结构
-              if (!validateResultStructure(results)) {
-                throw new Error('测评结果数据结构无效');
-              }
+                // 3.2 获取PR号码
+                pr_number = context.payload.workflow_run.pull_requests[0]?.number;
+                if (!pr_number) {
+                    throw new Error('无法获取PR号码');
+                }
 
-              const { validation, evaluation } = results;
-              pr_number = results.pr_number;
+                // 3.3 读取并解析测评结果
+                const rawData = fs.readFileSync('evaluation_results.json', 'utf8');
+                results = JSON.parse(rawData);
 
-              if (!validation.valid) {
-                commentBody = `❌ **提交格式验证失败**\n\n请确保：\n1. 所有文件都在 submit 目录下\n2. 文件路径格式为 submit/用户名/lab数字/\n3. PR提交者的用户名与提交路径中的用户名一致\n\n修改后重新提交PR即可重新触发验证。`;
-              } else if (evaluation.exit_code !== 0) {
-                commentBody = `❌ **测评脚本执行失败**，退出码: ${evaluation.exit_code}\n\n这可能是由系统问题导致的，而非您代码的问题。请联系仓库维护者寻求帮助。`;
-              } else {
-                let resultObj;
-                try {
-                  resultObj = JSON.parse(evaluation.result);
-                  
-                  // 验证评测结果的数据结构
-                  if (!validateEvaluationResult(resultObj)) {
+                // 3.4 验证数据结构
+                if (!validateResultStructure(results)) {
+                    throw new Error('测评结果数据结构无效');
+                }
+
+                const { validation, evaluation } = results;
+
+                // 3.5 验证提交格式
+                if (!validation.valid) {
+                    commentBody = `❌ **提交格式验证失败**\n\n请确保：\n1. 所有文件都在 submit 目录下\n2. 文件路径格式为 submit/用户名/lab数字/\n3. PR提交者的用户名与提交路径中的用户名一致\n\n修改后重新提交PR即可重新触发验证。`;
+                    return;
+                }
+
+                // 3.6 检查测评脚本执行状态
+                if (evaluation.exit_code !== 0) {
+                    systemError = true;
+                    commentBody = `❌ **测评脚本执行失败**，退出码: ${evaluation.exit_code}\n\n这可能是由系统问题导致的，而非您代码的问题。我们已经记录了这个问题，并会尽快修复。\n\n如果问题持续存在，请在Issue中报告这个问题。`;
+                    return;
+                }
+
+                // 3.7 解析测评结果
+                const resultObj = JSON.parse(evaluation.result);
+                if (!validateEvaluationResult(resultObj)) {
                     throw new Error('评测结果格式无效');
-                  }
-                } catch (parseError) {
-                  throw new Error(`解析评测结果失败: ${parseError.message}`);
                 }
 
-                if (resultObj.error) {
-                  commentBody = `❌ **测评过程发生错误！**\n\n这可能是测评系统的问题，请联系仓库维护者寻求帮助。\n\n错误信息：${resultObj.error}`;
-                } else {
-                  const allPassed = resultObj.every(item => item.passed === true);
-                  const hasTableError = resultObj.some(item => item.table_update_error);
-                  
-                  passed = allPassed && !hasTableError;
-                  
-                  if (passed) {
-                    commentBody = '✅ **测评通过！** 恭喜您成功完成了本次实验任务！';
-                  } else if (hasTableError) {
-                    commentBody = '❌ **测评未通过 - 成绩表更新错误**\n\n在更新成绩表过程中发生错误，这可能是系统问题。请联系仓库维护者寻求帮助。';
-                  } else {
-                    let failedLabs = [];
-                    resultObj.forEach(lab => {
-                      if (!lab.passed) {
-                        let labSummary = `**实验 ${lab.lab_num}**: `;
-                        
-                        let passedTasks = 0;
-                        let failedTasks = 0;
-                        let hasError = false;
-                        
-                        Object.entries(lab.tasks).forEach(([taskName, task]) => {
-                          if (task.returncode === 0) {
-                            passedTasks++;
-                          } else {
-                            failedTasks++;
-                            if (task.error) {
-                              hasError = true;
-                              labSummary += `\n- ${taskName}: ${task.error}`;
-                            }
-                          }
-                        });
-                        
-                        labSummary += `\n通过 ${passedTasks} 个任务，失败 ${failedTasks} 个任务`;
-                        if (hasError) labSummary += "\n（详细错误信息请见上方）";
-                        
-                        failedLabs.push(labSummary);
-                      }
-                    });
-                    
-                    commentBody = '❌ **测评未通过**\n\n' + failedLabs.join('\n\n') + '\n\n请检查您的代码并解决问题。修改后重新提交PR即可重新触发测评。';
-                  }
-                }
-              }
+                // 3.8 处理测评结果
+                const processedResults = processEvaluationResults(resultObj);
+                passed = processedResults.passed;
+                systemError = processedResults.systemError;
+                commentBody = processedResults.commentBody;
+
             } catch (error) {
-              console.error('处理测评结果时发生错误:', error);
-              commentBody = `❌ **测评系统错误**\n\n处理测评结果时发生错误：${error.message}\n\n这是测评系统内部问题，请联系仓库维护者寻求帮助。`;
+                console.error('处理测评结果时发生错误:', error);
+                systemError = true;
+                commentBody = `❌ **测评系统错误**\n\n处理测评结果时发生错误：${error.message}\n\n这是测评系统内部问题，我们已经记录了这个错误。如果问题持续存在，请在Issue中报告这个问题。`;
             } finally {
-              // 确保即使发生错误也能创建评论
-              if (pr_number) {
-                try {
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: pr_number,
-                    body: commentBody
-                  });
-
-                  // 只有在测试通过且没有发生错误的情况下才尝试合并PR
-                  if (passed) {
-                    await github.rest.pulls.merge({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      pull_number: pr_number,
-                      merge_method: 'merge'
-                    });
-                  }
-                } catch (commentError) {
-                  console.error('创建评论或合并PR时发生错误:', commentError);
+                if (pr_number) {
+                    try {
+                        await handleCommentAndMerge(github, context, pr_number, commentBody, passed, systemError);
+                    } catch (error) {
+                        core.setFailed(`创建评论或合并PR失败: ${error.message}`);
+                    }
                 }
-              }
             } 
