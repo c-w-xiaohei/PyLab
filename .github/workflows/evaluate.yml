@@ -205,23 +205,24 @@ jobs:
           script: |
             const fs = require('fs');
             
-            let evaluationResult;
+            let evaluationResult = null;
             try {
-              // 将字符串解析为 JSON 对象
-              evaluationResult = JSON.parse(${{ needs.evaluate-code.outputs.evaluation_result || '""' }});
+              const resultStr = `${{ needs.evaluate-code.outputs.evaluation_result }}`;
+              evaluationResult = resultStr ? JSON.parse(resultStr) : null;
             } catch (e) {
+              console.log('解析评估结果失败:', e);
               evaluationResult = { error: "validation_failed" };
             }
             
             const results = {
               validation: {
                 valid: ${{ needs.validate-submission.outputs.valid == 'true' }},
-                paths: '${{ needs.validate-submission.outputs.paths }}',
-                username: '${{ needs.validate-submission.outputs.username }}'
+                paths: '${{ needs.validate-submission.outputs.paths }}'.trim(),
+                username: '${{ needs.validate-submission.outputs.username }}'.trim()
               },
               evaluation: {
                 result: evaluationResult,
-                exit_code: ${{ needs.evaluate-code.outputs.evaluation_exit_code || 1 }}
+                exit_code: Number(${{ needs.evaluate-code.outputs.evaluation_exit_code || 1 }})
               }
             };
             
