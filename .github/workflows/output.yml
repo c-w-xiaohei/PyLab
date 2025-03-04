@@ -189,42 +189,41 @@ jobs:
 
             try {
                 // 3.2 获取PR号码
-                pr_number = context.payload.workflow_run.pull_requests[0]?.number;
+                const rawData = fs.readFileSync('evaluation_results.json', 'utf8');
+                results = JSON.parse(rawData);
+                
+                pr_number = results.pr_number;  // 从结果文件中获取PR号
                 if (!pr_number) {
                     throw new Error('无法获取PR号码');
                 }
 
-                // 3.3 读取并解析测评结果
-                const rawData = fs.readFileSync('evaluation_results.json', 'utf8');
-                results = JSON.parse(rawData);
-
-                // 3.4 验证数据结构
+                // 3.3 验证数据结构
                 if (!validateResultStructure(results)) {
                     throw new Error('测评结果数据结构无效');
                 }
 
                 const { validation, evaluation } = results;
 
-                // 3.5 验证提交格式
+                // 3.4 验证提交格式
                 if (!validation.valid) {
                     commentBody = `❌ **提交格式验证失败**\n\n请确保：\n1. 所有文件都在 submit 目录下\n2. 文件路径格式为 submit/用户名/lab数字/\n3. PR提交者的用户名与提交路径中的用户名一致\n\n修改后重新提交PR即可重新触发验证。`;
                     return;
                 }
 
-                // 3.6 检查测评脚本执行状态
+                // 3.5 检查测评脚本执行状态
                 if (evaluation.exit_code !== 0) {
                     systemError = true;
                     commentBody = `❌ **测评脚本执行失败**，退出码: ${evaluation.exit_code}\n\n这可能是由系统问题导致的，而非您代码的问题。我们已经记录了这个问题，并会尽快修复。\n\n如果问题持续存在，请在Issue中报告这个问题。`;
                     return;
                 }
 
-                // 3.7 解析测评结果
+                // 3.6 解析测评结果
                 const resultObj = JSON.parse(evaluation.result);
                 if (!validateEvaluationResult(resultObj)) {
                     throw new Error('评测结果格式无效');
                 }
 
-                // 3.8 处理测评结果
+                // 3.7 处理测评结果
                 const processedResults = processEvaluationResults(resultObj);
                 passed = processedResults.passed;
                 systemError = processedResults.systemError;

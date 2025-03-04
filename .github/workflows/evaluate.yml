@@ -215,6 +215,7 @@ jobs:
             }
             
             const results = {
+              pr_number: ${{ github.event.pull_request.number }},
               validation: {
                 valid: ${{ needs.validate-submission.outputs.valid == 'true' }},
                 paths: '${{ needs.validate-submission.outputs.paths }}'.trim(),
