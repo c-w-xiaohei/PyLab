@@ -98,6 +98,7 @@ jobs:
             function processEvaluationResults(resultObj) {
                 // 处理错误结果
                 if (resultObj.error === 'validation_failed') {
+                    core.setFailed(`测评结果解析错误: ${resultObj.error}`);
                     return {
                         passed: false,
                         systemError: true,
