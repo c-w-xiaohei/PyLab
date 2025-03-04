@@ -208,8 +208,8 @@ jobs:
             let evaluationResult = null;
             try {
               const resultStr = `${{ needs.evaluate-code.outputs.evaluation_result }}`;
-              resultStr.replace(/^"|"$/g, '');
-              evaluationResult = JSON.parse(resultStr);
+              const cleanStr = resultStr.replace(/^"|"$/g, '');
+              evaluationResult = JSON.parse(cleanStr);
             } catch (e) {
               console.log('解析评估结果失败:', e);
               console.log('原始结果字符串:', '${{ needs.evaluate-code.outputs.evaluation_result }}');
