@@ -207,7 +207,8 @@ jobs:
             
             let evaluationResult;
             try {
-              evaluationResult = ${{ needs.evaluate-code.outputs.evaluation_result || '""' }};
+              // 将字符串解析为 JSON 对象
+              evaluationResult = JSON.parse(${{ needs.evaluate-code.outputs.evaluation_result || '""' }});
             } catch (e) {
               evaluationResult = { error: "validation_failed" };
             }
