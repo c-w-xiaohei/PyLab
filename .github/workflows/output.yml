@@ -2,33 +2,33 @@ name: 输出测评结果
 
 on:
   workflow_run:
-    workflows: ["测评学习者代码"] # 监听 evaluate.yml 工作流
+    workflows: ["测评学习者代码"]
     types:
       - completed
 
 permissions:
-  contents: write    # 允许修改仓库内容（用于合并PR）
-  pull-requests: write    # 允许更新PR状态和评论PR
-  issues: write    # 允许评论issues
+  contents: write
+  pull-requests: write
+  issues: write
 
 jobs:
-  comment-and-merge:
+  process-results:
     runs-on: ubuntu-latest
-    name: 评论和合并
+    if: github.event.workflow_run.conclusion == 'success'
     steps:
       - name: 下载测评结果
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
-            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+            const allArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              run_id: context.payload.workflow_run.id
+              run_id: context.payload.workflow_run.id,
             });
             
-            const matchArtifact = artifacts.data.artifacts.find(
-              artifact => artifact.name === "evaluation-results"
-            );
+            const matchArtifact = allArtifacts.data.artifacts.filter((artifact) => {
+              return artifact.name == "evaluation-results"
+            })[0];
             
             if (!matchArtifact) {
               throw new Error('找不到测评结果文件');
@@ -38,58 +38,85 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               artifact_id: matchArtifact.id,
-              archive_format: 'zip'
+              archive_format: 'zip',
             });
             
             const fs = require('fs');
             fs.writeFileSync('evaluation-results.zip', Buffer.from(download.data));
-            
-            await exec.exec('unzip evaluation-results.zip');
-            
-            const exitCode = fs.readFileSync('exit_code.txt', 'utf8').trim();
-            const details = fs.readFileSync('details.txt', 'utf8').trim();
-            
-            core.setOutput('exitCode', exitCode);
-            core.setOutput('details', details);
-
+      
+      - name: 解压测评结果
+        run: unzip evaluation-results.zip
+        
       - name: 处理测评结果
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.WORKFLOW_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const exitCode = fs.readFileSync('exit_code.txt', 'utf8').trim();
-            const details = fs.readFileSync('details.txt', 'utf8').trim();
             
-            console.log(`测评工作流结论: ${context.payload.workflow_run.conclusion}`);
-            console.log(`获取到测评结果 - 退出码: ${exitCode}`);
-            console.log(`测评详情: ${details}`);
+            // 验证JSON数据结构的函数
+            function validateResultStructure(data) {
+              if (!data || typeof data !== 'object') return false;
+              if (!('pr_number' in data)) return false;
+              if (!('validation' in data) || typeof data.validation !== 'object') return false;
+              if (!('evaluation' in data) || typeof data.evaluation !== 'object') return false;
+              return true;
+            }
 
+            // 验证评测结果对象的函数
+            function validateEvaluationResult(result) {
+              if (!Array.isArray(result)) return false;
+              return result.every(item => {
+                return item && typeof item === 'object' && 
+                       'passed' in item && 
+                       'lab_num' in item &&
+                       'tasks' in item;
+              });
+            }
+
+            let results;
             let commentBody = '';
             let passed = false;
+            let pr_number;
 
             try {
-              if (exitCode !== '0') {
-                commentBody = `❌ **测评脚本执行失败**，退出码: ${exitCode}\n\n这可能是由系统问题导致的，而非您代码的问题。请联系仓库维护者寻求帮助。`;
+              // 读取并解析结果JSON
+              const rawData = fs.readFileSync('evaluation_results.json', 'utf8');
+              results = JSON.parse(rawData);
+              
+              // 验证基本数据结构
+              if (!validateResultStructure(results)) {
+                throw new Error('测评结果数据结构无效');
+              }
+
+              const { validation, evaluation } = results;
+              pr_number = results.pr_number;
+
+              if (!validation.valid) {
+                commentBody = `❌ **提交格式验证失败**\n\n请确保：\n1. 所有文件都在 submit 目录下\n2. 文件路径格式为 submit/用户名/lab数字/\n3. PR提交者的用户名与提交路径中的用户名一致\n\n修改后重新提交PR即可重新触发验证。`;
+              } else if (evaluation.exit_code !== 0) {
+                commentBody = `❌ **测评脚本执行失败**，退出码: ${evaluation.exit_code}\n\n这可能是由系统问题导致的，而非您代码的问题。请联系仓库维护者寻求帮助。`;
               } else {
                 let resultObj;
                 try {
-                  resultObj = JSON.parse(details);
+                  resultObj = JSON.parse(evaluation.result);
+                  
+                  // 验证评测结果的数据结构
+                  if (!validateEvaluationResult(resultObj)) {
+                    throw new Error('评测结果格式无效');
+                  }
                 } catch (parseError) {
-                  console.error(`JSON 解析失败: ${parseError.message}`);
-                  console.error(`原始数据: ${details}`);
-                  commentBody = `❌ **测评结果解析失败！**\n\n这是测评系统内部问题，请联系仓库维护者寻求帮助。`;
-                  return;
+                  throw new Error(`解析评测结果失败: ${parseError.message}`);
                 }
 
                 if (resultObj.error) {
-                  commentBody = `❌ **测评过程发生错误！**\n\n这可能是测评系统的问题，请联系仓库维护者寻求帮助。`;
+                  commentBody = `❌ **测评过程发生错误！**\n\n这可能是测评系统的问题，请联系仓库维护者寻求帮助。\n\n错误信息：${resultObj.error}`;
                 } else {
                   const allPassed = resultObj.every(item => item.passed === true);
                   const hasTableError = resultObj.some(item => item.table_update_error);
-
+                  
                   passed = allPassed && !hasTableError;
-
+                  
                   if (passed) {
                     commentBody = '✅ **测评通过！** 恭喜您成功完成了本次实验任务！';
                   } else if (hasTableError) {
@@ -99,88 +126,59 @@ jobs:
                     resultObj.forEach(lab => {
                       if (!lab.passed) {
                         let labSummary = `**实验 ${lab.lab_num}**: `;
-
+                        
                         let passedTasks = 0;
                         let failedTasks = 0;
                         let hasError = false;
-
-                        Object.values(lab.tasks).forEach(task => {
+                        
+                        Object.entries(lab.tasks).forEach(([taskName, task]) => {
                           if (task.returncode === 0) {
                             passedTasks++;
                           } else {
                             failedTasks++;
-                            if (task.error) hasError = true;
+                            if (task.error) {
+                              hasError = true;
+                              labSummary += `\n- ${taskName}: ${task.error}`;
+                            }
                           }
                         });
-
-                        labSummary += `通过 ${passedTasks} 个任务，失败 ${failedTasks} 个任务`;
-                        if (hasError) labSummary += "（代码执行过程中出现错误）";
-
+                        
+                        labSummary += `\n通过 ${passedTasks} 个任务，失败 ${failedTasks} 个任务`;
+                        if (hasError) labSummary += "\n（详细错误信息请见上方）";
+                        
                         failedLabs.push(labSummary);
                       }
                     });
-
-                    commentBody = '❌ **测评未通过**\n\n' + failedLabs.join('\n') + '\n\n请检查您的代码并解决问题。修改后重新提交PR即可重新触发测评。';
+                    
+                    commentBody = '❌ **测评未通过**\n\n' + failedLabs.join('\n\n') + '\n\n请检查您的代码并解决问题。修改后重新提交PR即可重新触发测评。';
                   }
                 }
               }
-
-              // 获取PR编号
-              const pull_request_number = await getPullRequestNumber(github, context);
-              
-              if (!pull_request_number) {
-                throw new Error('无法获取PR编号');
-              }
-
-              // 创建评论
-              await github.rest.issues.createComment({
-                issue_number: pull_request_number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: commentBody
-              });
-
-              // 如果测试通过，合并PR
-              if (passed) {
-                await github.rest.pulls.merge({
-                  pull_number: pull_request_number,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  merge_method: 'merge'
-                });
-              }
             } catch (error) {
-              console.error(`处理测评结果时发生错误: ${error.message}`);
-              console.error(error.stack);
-              
-              const pull_request_number = await getPullRequestNumber(github, context);
-              
-              if (pull_request_number) {
-                await github.rest.issues.createComment({
-                  issue_number: pull_request_number,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  body: `❌ **测评结果处理失败！**\n\n这是测评系统内部问题，请联系仓库维护者寻求帮助。\n\n错误信息：${error.message}`
-                });
-              }
-            }
+              console.error('处理测评结果时发生错误:', error);
+              commentBody = `❌ **测评系统错误**\n\n处理测评结果时发生错误：${error.message}\n\n这是测评系统内部问题，请联系仓库维护者寻求帮助。`;
+            } finally {
+              // 确保即使发生错误也能创建评论
+              if (pr_number) {
+                try {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: pr_number,
+                    body: commentBody
+                  });
 
-      - name: 获取PR编号
-        id: get-pr-number
-        uses: actions/github-script@v6
-        with:
-          script: |
-            async function getPullRequestNumber(github, context) {
-              const response = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                commit_sha: context.payload.workflow_run.head_sha
-              });
-              
-              if (response.data.length > 0) {
-                return response.data[0].number;
+                  // 只有在测试通过且没有发生错误的情况下才尝试合并PR
+                  if (passed) {
+                    await github.rest.pulls.merge({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      pull_number: pr_number,
+                      merge_method: 'merge'
+                    });
+                  }
+                } catch (commentError) {
+                  console.error('创建评论或合并PR时发生错误:', commentError);
+                }
               }
-              return null;
-            }
-            
-            return await getPullRequestNumber(github, context);
+            } 
