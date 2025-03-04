@@ -98,12 +98,7 @@ jobs:
             function processEvaluationResults(resultObj) {
                 // 处理错误结果
                 if (resultObj.error === 'validation_failed') {
-                    core.setFailed(`测评结果解析错误: ${resultObj.error}`);
-                    return {
-                        passed: false,
-                        systemError: true,
-                        commentBody: '❌ **测评系统错误**\n\n在处理测评结果时发生了问题。这是系统内部错误，而非您代码的问题。\n\n我们已经记录了这个问题，并会尽快修复。如果问题持续存在，请在Issue中报告这个问题。'
-                    };
+                    throw new Error('上一工作流无法解析测评脚本');
                 }
                 
                 const allPassed = resultObj.every(item => item.passed === true);
