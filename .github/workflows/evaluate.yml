@@ -241,3 +241,11 @@ jobs:
           echo "details<<EOF" >> $GITHUB_OUTPUT
           echo -e "$RESULT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: 保存测评结果
+        uses: actions/upload-artifact@v3
+        with:
+          name: evaluation-results
+          path: |
+            echo "${{ steps.evaluate.outputs.exit_code }}" > exit_code.txt
+            echo "${{ steps.evaluate.outputs.details }}" > details.txt
