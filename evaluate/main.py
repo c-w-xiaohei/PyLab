@@ -168,7 +168,7 @@ def main():
         # 5. 输出 JSON 结果到标准输出
         json_str = json.dumps(results, separators=(',', ':'), ensure_ascii=False)
         # 将换行符和制表符转换为转义字符
-        escaped_json = json_str.replace('\n', '\\n').replace('\t', '\\t').replace('\r', '\\r')
+        escaped_json = json_str.replace(r'\n', r'\\n').replace(r'\t', r'\\t').replace(r'\r', r'\\r')
         print(escaped_json, flush=True)
 
         # 6. 保存表格（无论实验是否通过都保存）
@@ -197,7 +197,7 @@ def main():
         
         # JSON格式的错误信息输出到stdout
         error_json = json.dumps(error_info, separators=(',', ':'), ensure_ascii=False)
-        escaped_error_json = error_json.replace('\n', '\\n').replace('\t', '\\t').replace('\r', '\\r')
+        escaped_error_json = error_json.replace(r'\n', r'\\n').replace(r'\t', r'\\t').replace(r'\r', r'\\r')
         print(escaped_error_json)
         
         sys.exit(1)
