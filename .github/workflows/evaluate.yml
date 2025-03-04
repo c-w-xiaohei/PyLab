@@ -207,10 +207,12 @@ jobs:
             
             let evaluationResult = null;
             try {
-              const resultStr = `${{ needs.evaluate-code.outputs.evaluation_result }}`;
-              evaluationResult = resultStr ? JSON.parse(resultStr) : null;
+              const resultStr = '${{ needs.evaluate-code.outputs.evaluation_result }}';
+              const cleanResultStr = resultStr.replace(/^"(.*)"$/, '$1');
+              evaluationResult = cleanResultStr ? JSON.parse(cleanResultStr) : null;
             } catch (e) {
               console.log('解析评估结果失败:', e);
+              console.log('原始结果字符串:', '${{ needs.evaluate-code.outputs.evaluation_result }}');
               evaluationResult = { error: "validation_failed" };
             }
             
@@ -223,7 +225,7 @@ jobs:
               },
               evaluation: {
                 result: evaluationResult,
-                exit_code: Number(${{ needs.evaluate-code.outputs.evaluation_exit_code || 1 }})
+                exit_code: Number('${{ needs.evaluate-code.outputs.evaluation_exit_code || 1 }}')
               }
             };
             
