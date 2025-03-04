@@ -19,7 +19,6 @@ jobs:
       paths: ${{ steps.find-changes.outputs.paths }}
       username: ${{ steps.extract-info.outputs.username }}
       valid: ${{ steps.validate-path.outputs.valid }}
-      pr_number: ${{ github.event.pull_request.number }}
     
     steps:
       - name: 检出代码
@@ -191,7 +190,7 @@ jobs:
           EXIT_CODE=$?
           
           # 将结果输出到job outputs
-          echo "result=$RESULT" >> $GITHUB_OUTPUT
+          echo "result=\"$RESULT\"" >> $GITHUB_OUTPUT
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
 
   upload-results:
@@ -208,14 +207,13 @@ jobs:
             
             // 构建结果对象
             const results = {
-              pr_number: ${{ needs.validate-submission.outputs.pr_number }},
               validation: {
                 valid: ${{ needs.validate-submission.outputs.valid == 'true' }},
                 paths: '${{ needs.validate-submission.outputs.paths }}',
                 username: '${{ needs.validate-submission.outputs.username }}'
               },
               evaluation: {
-                result: ${{ needs.evaluate-code.outputs.evaluation_result || '"validation_failed"' }},
+                result: JSON.stringify(${{ needs.evaluate-code.outputs.evaluation_result || '{"error": "validation_failed"}' }}),
                 exit_code: ${{ needs.evaluate-code.outputs.evaluation_exit_code || 1 }}
               }
             };
