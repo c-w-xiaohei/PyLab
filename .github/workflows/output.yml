@@ -57,6 +57,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
+            const core = require('@actions/core');
 
             //===================================================
             // 2. 辅助函数定义
@@ -188,7 +189,6 @@ jobs:
             let pr_number;
 
             try {
-                // 3.2 获取PR号码
                 const rawData = fs.readFileSync('evaluation_results.json', 'utf8');
                 results = JSON.parse(rawData);
                 
@@ -218,7 +218,7 @@ jobs:
                 }
 
                 // 3.6 解析测评结果
-                const resultObj = JSON.parse(evaluation.result);
+                const resultObj = evaluation.result;
                 if (!validateEvaluationResult(resultObj)) {
                     throw new Error('评测结果格式无效');
                 }
@@ -231,8 +231,16 @@ jobs:
 
             } catch (error) {
                 console.error('处理测评结果时发生错误:', error);
+                console.error('错误堆栈:', error.stack);
+                console.error('当前上下文:', {
+                    results: results,
+                    pr_number: pr_number,
+                    commentBody: commentBody
+                });
+                
                 systemError = true;
                 commentBody = `❌ **测评系统错误**\n\n处理测评结果时发生错误：${error.message}\n\n这是测评系统内部问题，我们已经记录了这个错误。如果问题持续存在，请在Issue中报告这个问题。`;
+                core.setFailed(`测评系统错误: ${error.message}`);
             } finally {
                 if (pr_number) {
                     try {
@@ -240,5 +248,8 @@ jobs:
                     } catch (error) {
                         core.setFailed(`创建评论或合并PR失败: ${error.message}`);
                     }
+                } else {
+                    console.error('未能获取PR号码，跳过评论和合并操作');
+                    core.setFailed('未能获取PR号码');
                 }
             } 
