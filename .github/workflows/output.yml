@@ -72,6 +72,13 @@ jobs:
 
             // 2.2 验证评测结果对象的函数
             function validateEvaluationResult(result) {
+                console.log('Validating result:', JSON.stringify(result, null, 2));
+                
+                // 处理错误结果的情况
+                if (result.error) {
+                    return true; // 允许包含error字段的结果通过验证
+                }
+                
                 if (!Array.isArray(result)) return false;
                 return result.every(item => {
                     const isValid = item && 
@@ -89,6 +96,15 @@ jobs:
 
             // 2.3 处理测评结果并生成评论内容
             function processEvaluationResults(resultObj) {
+                // 处理错误结果
+                if (resultObj.error === 'validation_failed') {
+                    return {
+                        passed: false,
+                        systemError: true,
+                        commentBody: '❌ **测评系统错误**\n\n在处理测评结果时发生了问题。这是系统内部错误，而非您代码的问题。\n\n我们已经记录了这个问题，并会尽快修复。如果问题持续存在，请在Issue中报告这个问题。'
+                    };
+                }
+                
                 const allPassed = resultObj.every(item => item.passed === true);
                 const hasTableError = resultObj.some(item => item.table_update_error);
 
