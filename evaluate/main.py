@@ -166,7 +166,7 @@ def main():
             results.append(lab_results)  # 将每个 lab 的结果添加到总结果中
 
         # 5. 输出 JSON 结果到标准输出
-        print(json.dumps(results, indent=2, ensure_ascii=False))
+        print(json.dumps(results, separators=(',', ':'), ensure_ascii=False))
 
         # 6. 保存表格（无论实验是否通过都保存）
         try:
@@ -193,7 +193,7 @@ def main():
         print(traceback.format_exc(), file=sys.stderr)
         
         # JSON格式的错误信息输出到stdout
-        print(json.dumps(error_info, indent=2, ensure_ascii=False))
+        print(json.dumps(error_info, separators=(',', ':'), ensure_ascii=False))
         
         sys.exit(1)
 

@@ -205,7 +205,13 @@ jobs:
           script: |
             const fs = require('fs');
             
-            // 构建结果对象
+            let evaluationResult;
+            try {
+              evaluationResult = ${{ needs.evaluate-code.outputs.evaluation_result || '""' }};
+            } catch (e) {
+              evaluationResult = { error: "validation_failed" };
+            }
+            
             const results = {
               validation: {
                 valid: ${{ needs.validate-submission.outputs.valid == 'true' }},
@@ -213,12 +219,11 @@ jobs:
                 username: '${{ needs.validate-submission.outputs.username }}'
               },
               evaluation: {
-                result: JSON.stringify(${{ needs.evaluate-code.outputs.evaluation_result || '{"error": "validation_failed"}' }}),
+                result: evaluationResult,
                 exit_code: ${{ needs.evaluate-code.outputs.evaluation_exit_code || 1 }}
               }
             };
             
-            // 写入JSON文件
             fs.writeFileSync('evaluation_results.json', JSON.stringify(results, null, 2));
 
       - name: 上传结果
