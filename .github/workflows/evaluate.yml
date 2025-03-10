@@ -162,26 +162,13 @@ jobs:
               
               cp evaluate/_setup.py "$SUBMIT_DIR/setup.py"
               
-              (cd "$SUBMIT_DIR" && python setup.py build_ext --inplace)
+              # 设置环境变量强制生成.pyd文件
+              (cd "$SUBMIT_DIR" && FORCE_PYD=1 python setup.py build_ext --inplace)
               
               rm -f "$SUBMIT_DIR/setup.py"
               rm -rf "$SUBMIT_DIR/build"
               find "$SUBMIT_DIR" -name "*.c" -delete
             fi
-          done
-          
-      - name: 配置 Git
-        run: |
-          git config --local user.name "github-actions[bot]"
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: 添加 .pyd 文件到 Git 暂存区
-        run: |
-          PATHS="${{ needs.validate-submission.outputs.paths }}"
-          for LAB_PATH in $PATHS; do
-            SUBMIT_DIR="submit/$LAB_PATH"
-            echo "添加 ${SUBMIT_DIR}/*.pyd 到暂存区"
-            git add "$SUBMIT_DIR/*.pyd"
           done
 
       - name: 运行测评
@@ -210,7 +197,7 @@ jobs:
       - name: 提交更改
         if: success()
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
           # 检查是否有任何更改（包括.pyd文件和README.md）
