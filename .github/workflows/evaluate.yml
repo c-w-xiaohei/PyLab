@@ -118,7 +118,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
-          persist-credentials: true
         
       - name: 设置Python环境
         uses: actions/setup-python@v4
