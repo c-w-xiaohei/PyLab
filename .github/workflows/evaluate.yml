@@ -7,8 +7,8 @@ on:
 
 # 添加权限配置
 permissions:
-  contents: read
-  pull-requests: read
+  contents: write
+  pull-requests: write
   issues: read
 
 jobs:
@@ -170,6 +170,20 @@ jobs:
             fi
           done
           
+      - name: 配置 Git
+        run: |
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: 添加 .pyd 文件到 Git 暂存区
+        run: |
+          PATHS="${{ needs.validate-submission.outputs.paths }}"
+          for LAB_PATH in $PATHS; do
+            SUBMIT_DIR="submit/$LAB_PATH"
+            echo "添加 ${SUBMIT_DIR}/*.pyd 到暂存区"
+            git add "$SUBMIT_DIR/*.pyd"
+          done
+
       - name: 运行测评
         id: evaluate
         run: |
@@ -192,6 +206,46 @@ jobs:
           # 将结果输出到job outputs
           echo "result=\"$RESULT\"" >> $GITHUB_OUTPUT
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+      - name: 提交更改
+        if: success()
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # 检查是否有任何更改（包括.pyd文件和README.md）
+          if ! git diff-index --quiet HEAD -- || [[ -n "$(git status --porcelain)" ]]; then
+            # 添加所有更改
+            git add -A
+            
+            # 获取更改的文件列表
+            CHANGED_FILES=$(git status --porcelain)
+            echo "检测到以下更改:"
+            echo "$CHANGED_FILES"
+            
+            # 根据更改类型生成提交信息
+            COMMIT_MSG=""
+            if echo "$CHANGED_FILES" | grep -q "\.pyd"; then
+              COMMIT_MSG="编译源码"
+            fi
+            if echo "$CHANGED_FILES" | grep -q "README.md"; then
+              if [ -n "$COMMIT_MSG" ]; then
+                COMMIT_MSG="$COMMIT_MSG 并更新成绩表"
+              else
+                COMMIT_MSG="更新成绩表"
+              fi
+            fi
+            
+            # 添加[skip ci]标记
+            COMMIT_MSG="$COMMIT_MSG [skip ci]"
+            
+            # 提交更改
+            git commit -m "$COMMIT_MSG"
+            git push origin HEAD:submit
+            echo "已提交并推送更改"
+          else
+            echo "没有检测到需要提交的更改"
+          fi
 
   upload-results:
     needs: [validate-submission, evaluate-code]
