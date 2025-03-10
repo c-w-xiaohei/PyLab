@@ -228,18 +228,18 @@ jobs:
             
             # 提交更改
             git commit -m "$COMMIT_MSG"
-            echo "已提交更改"
+            echo "已提交更改到 PR 分支"
           else
             echo "没有检测到需要提交的更改"
             exit 0
           fi
 
-      - name: 推送更改
+      - name: 推送更改到 PR 分支
         if: success()
         uses: ad-m/github-push-action@master
         with:
-          github_token: ${{ secrets.WORKFLOW_TOKEN }}
-          branch: submit
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.head_ref }}
 
   upload-results:
     needs: [validate-submission, evaluate-code]
