@@ -117,7 +117,7 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.event.pull_request.head.ref  }}
         
       - name: 设置Python环境
         uses: actions/setup-python@v4
