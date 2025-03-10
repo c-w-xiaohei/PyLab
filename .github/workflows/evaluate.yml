@@ -231,7 +231,11 @@ jobs:
             
             # 提交更改
             git commit -m "$COMMIT_MSG"
-            git pull --rebase origin submit  # 添加 rebase 操作
+            
+            # 使用-Xours策略拉取，保留当前更改
+            git pull --no-rebase -Xours origin submit
+            
+            # 推送更改
             git push origin HEAD:submit
             echo "已提交并推送更改"
           else
