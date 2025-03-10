@@ -200,6 +200,9 @@ jobs:
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
+          # 添加显式认证配置
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          
           # 检查是否有任何更改（包括.pyd文件和README.md）
           if ! git diff-index --quiet HEAD -- || [[ -n "$(git status --porcelain)" ]]; then
             # 添加所有更改
@@ -228,6 +231,7 @@ jobs:
             
             # 提交更改
             git commit -m "$COMMIT_MSG"
+            git pull --rebase origin submit  # 添加 rebase 操作
             git push origin HEAD:submit
             echo "已提交并推送更改"
           else
