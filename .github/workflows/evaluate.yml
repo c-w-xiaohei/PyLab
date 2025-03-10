@@ -22,7 +22,7 @@ jobs:
     
     steps:
       - name: 检出代码
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -116,6 +116,10 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          token: ${{ secrets.GITHUB_TOKEN }} 
         
       - name: 设置Python环境
         uses: actions/setup-python@v4
@@ -239,7 +243,7 @@ jobs:
         uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.event.repository }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
           branch: ${{ github.head_ref }}
 
   upload-results:
